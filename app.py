@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import time
 from flask import Flask, render_template_string
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -18,26 +19,20 @@ BOT_TOKEN = os.getenv('BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
 if not BOT_TOKEN:
     logger.error("❌ Токен не найден! Установите переменную окружения BOT_TOKEN или TELEGRAM_TOKEN")
     logger.error("Настройки Render: Environment Variables -> BOT_TOKEN = ваш_токен")
-    # Не выходим, чтобы Flask-сервер успел запуститься для диагностики
-    # Но бот не будет работать без токена
 
 logger.info(f"✅ Токен загружен: {BOT_TOKEN[:10]}..." if BOT_TOKEN else "❌ Токен отсутствует")
 
 # -------------------- ДАННЫЕ БОТА --------------------
-# Список администраторов (их Telegram ID)
 ADMINS = [317983266, 306843085]
 
-# Словарь с маркерами и их заменами
 marker_replacements = {
     "001": "Подобрал замену 001",
     "002": "Замена для маркера 002",
     "003": "Замена для маркера 003",
-    # Добавьте свои маркеры и замены
 }
 
 
 # -------------------- ОБРАБОТЧИКИ БОТА --------------------
-# Функция обработки команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         '👋 Привет! Введите номер маркера, чтобы получить его замену.\n\n'
@@ -45,11 +40,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-# Функция обработки текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     marker_number = update.message.text.strip()
-
-    # Проверяем, есть ли замена для введенного номера
     replacement = marker_replacements.get(marker_number)
 
     if replacement:
@@ -69,14 +61,14 @@ def run_bot():
         return
 
     try:
-        # Создаем приложение
-        app = Application.builder().token(BOT_TOKEN).build()
+        # Даем Flask время запуститься
+        time.sleep(2)
 
-        # Добавляем обработчики
+        logger.info("🚀 Запускаем бота...")
+        app = Application.builder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        # Запускаем бота (Long Polling)
         logger.info("🤖 Бот запущен и готов к работе!")
         logger.info(f"Администраторы: {ADMINS}")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -85,10 +77,8 @@ def run_bot():
 
 
 # -------------------- FLASK-СЕРВЕР ДЛЯ RENDER --------------------
-# Создаем Flask-приложение, чтобы Render видел, что сервис работает
 app = Flask(__name__)
 
-# Простая HTML-страница для проверки
 INDEX_HTML = """
 <!DOCTYPE html>
 <html>
@@ -124,14 +114,12 @@ INDEX_HTML = """
 
 @app.route('/')
 def index():
-    """Главная страница для проверки работы сервиса"""
     token_status = "✅ Загружен" if BOT_TOKEN else "❌ Не загружен"
     return render_template_string(INDEX_HTML, token_status=token_status, admins=ADMINS)
 
 
 @app.route('/health')
 def health():
-    """Эндпоинт для проверки здоровья (используется UptimeRobot)"""
     return {"status": "ok", "token": "configured" if BOT_TOKEN else "missing"}
 
 
@@ -140,8 +128,11 @@ if __name__ == '__main__':
     # Запускаем бота в отдельном потоке
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+    logger.info("🔄 Поток бота запущен")
 
-    # Запускаем Flask-сервер (Render требует порт из переменной PORT)
+    # Запускаем Flask-сервер
     port = int(os.getenv('PORT', 5000))
     logger.info(f"🌐 Flask-сервер запущен на порту {port}")
-    app.run(host='0.0.0.0', port=port)
+
+    # Включаем threaded=True для обработки нескольких запросов
+    app.run(host='0.0.0.0', port=port, threaded=True)
