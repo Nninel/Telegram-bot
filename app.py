@@ -51,28 +51,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 
-# -------------------- ФУНКЦИЯ ДЛЯ ЗАПУСКА БОТА (в главном потоке) --------------------
-def run_bot():
-    """Запуск бота в главном потоке"""
-    if not BOT_TOKEN:
-        logger.error("❌ Бот не запущен: отсутствует токен")
-        return
-
-    try:
-        logger.info("🚀 Запускаем бота...")
-        bot_app = Application.builder().token(BOT_TOKEN).build()
-        bot_app.add_handler(CommandHandler("start", start))
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-        logger.info("🤖 Бот запущен и готов к работе!")
-        logger.info(f"Администраторы: {ADMINS}")
-        bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
-    except Exception as e:
-        logger.error(f"❌ Ошибка при запуске бота: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-
 # -------------------- FLASK-СЕРВЕР --------------------
 app = Flask(__name__)
 
@@ -120,22 +98,33 @@ def health():
     return {"status": "ok", "token": "configured" if BOT_TOKEN else "missing"}
 
 
-# -------------------- ЗАПУСК FLASK В ФОНОВОМ ПОТОКЕ --------------------
-def run_flask():
-    """Запуск Flask-сервера в фоновом потоке"""
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, threaded=True)
+# -------------------- ЗАПУСК БОТА (в отдельном потоке) --------------------
+def run_bot():
+    """Запуск бота в фоновом потоке"""
+    if not BOT_TOKEN:
+        return
+
+    try:
+        logger.info("🚀 Запускаем бота...")
+        bot_app = Application.builder().token(BOT_TOKEN).build()
+        bot_app.add_handler(CommandHandler("start", start))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+        logger.info("🤖 Бот запущен и готов к работе!")
+        logger.info(f"Администраторы: {ADMINS}")
+        bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.error(f"❌ Ошибка бота: {e}")
 
 
-# -------------------- ГЛАВНЫЙ ЗАПУСК --------------------
+# -------------------- ЗАПУСК --------------------
 if __name__ == '__main__':
-    # Запускаем Flask в фоновом потоке
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info("🔄 Flask-сервер запущен в фоновом потоке")
+    # Запускаем бота в фоновом потоке
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    logger.info("🔄 Поток бота запущен")
 
-    # Запускаем бота в ГЛАВНОМ потоке
-    run_bot()
-else:
-    # Если запускаем через gunicorn, запускаем бота в главном потоке
-    run_bot()
+    # Запускаем Flask (Render видит порт)
+    port = int(os.getenv('PORT', 5000))
+    logger.info(f"🌐 Flask-сервер на порту {port}")
+    app.run(host='0.0.0.0', port=port, threaded=True)
