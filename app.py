@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv('BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
 
 if not BOT_TOKEN:
-    logger.error("❌ Токен не найден! Установите переменную окружения BOT_TOKEN или TELEGRAM_TOKEN")
+    logger.error("❌ Токен не найден!")
 else:
     logger.info(f"✅ Токен загружен: {BOT_TOKEN[:10]}...")
 
@@ -29,12 +29,14 @@ marker_replacements = {
     "003": "Замена для маркера 003",
 }
 
+
 # -------------------- ОБРАБОТЧИКИ БОТА --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         '👋 Привет! Введите номер маркера, чтобы получить его замену.\n\n'
         '📝 Пример: 001'
     )
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     marker_number = update.message.text.strip()
@@ -47,6 +49,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f'❌ Извините, замена для маркера "{marker_number}" не найдена.\n'
             'Проверьте правильность ввода.'
         )
+
+
+# -------------------- ФУНКЦИЯ ДЛЯ ЗАПУСКА БОТА (в главном потоке) --------------------
+def run_bot():
+    """Запуск бота в главном потоке"""
+    if not BOT_TOKEN:
+        logger.error("❌ Бот не запущен: отсутствует токен")
+        return
+
+    try:
+        logger.info("🚀 Запускаем бота...")
+        bot_app = Application.builder().token(BOT_TOKEN).build()
+        bot_app.add_handler(CommandHandler("start", start))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+        logger.info("🤖 Бот запущен и готов к работе!")
+        logger.info(f"Администраторы: {ADMINS}")
+        bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.error(f"❌ Ошибка при запуске бота: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
 
 # -------------------- FLASK-СЕРВЕР --------------------
 app = Flask(__name__)
@@ -83,49 +108,34 @@ INDEX_HTML = """
 </html>
 """
 
+
 @app.route('/')
 def index():
     token_status = "✅ Загружен" if BOT_TOKEN else "❌ Не загружен"
     return render_template_string(INDEX_HTML, token_status=token_status, admins=ADMINS)
 
+
 @app.route('/health')
 def health():
     return {"status": "ok", "token": "configured" if BOT_TOKEN else "missing"}
 
-# -------------------- ЗАПУСК БОТА (запускается при импорте) --------------------
-def run_bot():
-    """Функция для запуска бота"""
-    if not BOT_TOKEN:
-        logger.error("❌ Бот не запущен: отсутствует токен")
-        return
 
-    try:
-        logger.info("🚀 Запускаем бота...")
-        bot_app = Application.builder().token(BOT_TOKEN).build()
-        bot_app.add_handler(CommandHandler("start", start))
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-        logger.info("🤖 Бот запущен и готов к работе!")
-        logger.info(f"Администраторы: {ADMINS}")
-        bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
-    except Exception as e:
-        logger.error(f"❌ Ошибка при запуске бота: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-# --- ЗАПУСКАЕМ БОТА В ОТДЕЛЬНОМ ПОТОКЕ ПРИ ИМПОРТЕ ---
-# Это сработает и при запуске через gunicorn
-if BOT_TOKEN:
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    logger.info("🔄 Поток бота запущен")
-else:
-    logger.error("❌ Бот не запущен: нет токена")
-
-# -------------------- ЗАПУСК FLASK (только если файл запущен как main) --------------------
-if __name__ == '__main__':
+# -------------------- ЗАПУСК FLASK В ФОНОВОМ ПОТОКЕ --------------------
+def run_flask():
+    """Запуск Flask-сервера в фоновом потоке"""
     port = int(os.getenv('PORT', 5000))
-    logger.info(f"🌐 Flask-сервер запущен на порту {port}")
     app.run(host='0.0.0.0', port=port, threaded=True)
+
+
+# -------------------- ГЛАВНЫЙ ЗАПУСК --------------------
+if __name__ == '__main__':
+    # Запускаем Flask в фоновом потоке
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("🔄 Flask-сервер запущен в фоновом потоке")
+
+    # Запускаем бота в ГЛАВНОМ потоке
+    run_bot()
 else:
-    logger.info("🚀 Приложение запущено через gunicorn, бот работает в фоновом потоке")
+    # Если запускаем через gunicorn, запускаем бота в главном потоке
+    run_bot()
