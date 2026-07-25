@@ -1,0 +1,22 @@
+# Секреты и переменные окружения
+.env
+.env.local
+*.env
+
+# Python (кеш и виртуальное окружение)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Файлы IDE (редакторов кода)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Системные файлы
+.DS_Store
+Thumbs.db
